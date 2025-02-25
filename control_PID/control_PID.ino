@@ -1,26 +1,12 @@
-// Pines ESP
-#define EN_A 18
-#define EN_B 19
-
-//ENCODER
-double pos = 0.0;
-double timer = 0.0;
-double pos_ant = 0.0;
-double vel = 0.0;
-
-void IRAM_ATTR int_callback(){
-  if(digitalRead(EN_B) == 0){
-    pos = pos + 1;
-  } else {
-    pos = pos - 1;
-    }
-}
+#define EN_A 19
+#define EN_B 18
+#define pi 3.1416
 
 // ganancias del modelo continuo
-float kp = 0;
-float ki = 0;
-float kd = 0;
-float T = 0.01; //Periodo de muestreo en segundo
+float kp = 1.0;
+float ki = 18.0;
+float kd = 0.01;
+float T = 0.05; //Periodo de muestreo en segundo
 
 float K1,K2,K3;
 float tiempo = 0;
@@ -28,15 +14,32 @@ float referencia = 100;
 float retro;
 float e[3]={0,0,0};//e[0] error actual e[1] erro anterior
 float u[2]={0,0};//u[0] salida actual  u[1] salida anterior
-int cw = 5;//pines temporales
-int ccw= 6;//pines temporales
+int cw = 12;//pines temporales
+int ccw= 13;//pines temporales
 
-//Configuracion del PWM
-#define PWM_CH 0
-#define FREQ 500
-#define RES 8
+///////////////////////////////////
+// Encoder
+double pos = 0; //almacena las cuentas del enc
+double pos_ant = 0;
+double vel;
+
+void IRAM_ATTR int_callback()
+{ 
+  if(digitalRead(EN_B)==0)
+  {
+    pos = pos + 1;
+    }
+   else
+   {
+    pos = pos - 1;
+    }
+  }
+
+
+
 
 void setup() {
+  Serial.begin(115200);
   pinMode(cw,OUTPUT);
   pinMode(ccw,OUTPUT);
   // put your setup code here, to run once:
@@ -44,15 +47,10 @@ void setup() {
   K2 = -kp - 2.0*kd/T;
   K3 = kd/T;
 
-  //Encoder
+  // Encoder
   pinMode(EN_A, INPUT);
   pinMode(EN_B, INPUT);
-
-  //Configurar el canal de PWM
-  ledcSetup(PWM_CH, FREQ, RES);
-  ledcAttachPin(8, PWM_CH);//pin asociado al pwm
-  //ALTERNATIVO AL PWM
-  pinMode(8,OUTPUT);
+  attachInterrupt(EN_A, int_callback, RISING);
 }
 
 void loop() {
@@ -61,7 +59,10 @@ void loop() {
   if(micros()-tiempo>=T*1000000)
   {
     tiempo = micros();
-    retro = analogRead(0); // ficticio, momentaneo
+    //retro = analogRead(0); // ficticio, momentaneo
+    retro = 60.0*20.0*(pos - pos_ant)/(12.0*34.0);
+    retro = retro*2*pi/60;
+    pos_ant = pos;
     // calcular el error
     e[0]=referencia - retro;
     //calcular ecuación en diferencias o pid
@@ -70,26 +71,46 @@ void loop() {
     if(u[0]>255)  u[0]=255;
     if(u[0]<-255) u[0]=-255;
 
+    //u[0] = 100;
     //enviar acción de control
     if(u[0]>=0)
     {
-    digitalWrite(cw,HIGH);
-    digitalWrite(ccw,LOW);
-    //analogWrite(u[0],8); //terminal propuesta
-    ledcWrite(PWM_CH, u[0]);
+      analogWrite(cw,u[0]);
+      analogWrite(ccw,0);
     }
     else
     {
-    digitalWrite(cw,LOW);
-    digitalWrite(ccw,HIGH);
-    ledcWrite(PWM_CH, -u[0]);//analogWrite(-u[0],8); //terminal propuesta      
+      analogWrite(cw,0);
+      analogWrite(ccw,-u[0]);
       }
 
     // Recorrer las muestras para actualizar
     e[2]=e[1];
     e[1]=e[0];
     u[1]=u[0];
+    
+    Serial.print(referencia);
+    Serial.print("       ");
+    Serial.println(retro); //es la velocidad medida
     }
 
 
+}
+
+
+String mensaje;
+int indexa = 0;
+void serialEvent()
+{             
+    char ch = Serial.read();   
+    mensaje.concat(ch); 
+    if(mensaje.charAt(indexa) == '\n' && mensaje.charAt(indexa-1) == '\r')
+    {
+      indexa = 0;
+      referencia = mensaje.toFloat();
+      mensaje = "";
+      }   
+    else{
+    indexa++;
+    }
 }
